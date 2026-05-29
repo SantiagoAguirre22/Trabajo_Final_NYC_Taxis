@@ -843,3 +843,171 @@ tabla_coeficientes_gt <- tabla_coeficientes %>%
               table.font.size = px(12), data_row.padding = px(6))
 
 invisible(tabla_coeficientes_gt)
+
+                        # ==========================================================
+# Bloque 6 — Evaluación y validación del modelo
+# ==========================================================
+
+# ----------------------------------------------------------
+# Valores ajustados y residuos
+# ----------------------------------------------------------
+
+data_modelo <- data %>%
+  mutate(
+    ajustados  = fitted(modelo_final),
+    residuos   = residuals(modelo_final),
+    res_std    = rstandard(modelo_final)
+  )
+
+# ----------------------------------------------------------
+# Gráfico de valores reales vs. ajustados
+# ----------------------------------------------------------
+
+grafico_real_vs_ajustado <- ggplot(
+  data_modelo, aes(x = ajustados, y = log_trip_count)
+) +
+  geom_point(alpha = 0.15, color = "steelblue", size = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "darkblue", linewidth = 1) +
+  labs(title    = "Valores reales vs. valores ajustados",
+       subtitle = "La línea diagonal representa ajuste perfecto",
+       x = "Valores ajustados", y = "log(trip_count + 1) real") +
+  formato_grafica
+
+print(grafico_real_vs_ajustado)
+
+# ----------------------------------------------------------
+# Análisis de residuos
+# ----------------------------------------------------------
+
+# Residuos vs. ajustados (homocedasticidad)
+grafico_residuos_ajustados <- ggplot(
+  data_modelo, aes(x = ajustados, y = residuos)
+) +
+  geom_point(alpha = 0.15, color = "steelblue", size = 0.5) +
+  geom_hline(yintercept = 0, color = "darkblue", linewidth = 1) +
+  geom_smooth(method = "loess", color = "red", se = FALSE, linewidth = 0.8) +
+  labs(title    = "Residuos vs. valores ajustados",
+       subtitle = "La línea roja muestra tendencia — idealmente debe ser plana en cero",
+       x = "Valores ajustados", y = "Residuos") +
+  formato_grafica
+
+print(grafico_residuos_ajustados)
+
+# Histograma de residuos
+grafico_hist_residuos <- ggplot(data_modelo, aes(x = residuos)) +
+  geom_histogram(fill = "steelblue", color = "white", bins = 60) +
+  labs(title = "Distribución de los residuos del modelo",
+       x = "Residuos", y = "Frecuencia") +
+  formato_grafica
+
+print(grafico_hist_residuos)
+
+# Q-Q plot de residuos (normalidad)
+grafico_qq_residuos <- ggplot(data_modelo, aes(sample = res_std)) +
+  stat_qq(color = "steelblue", alpha = 0.4, size = 0.8) +
+  stat_qq_line(color = "darkblue", linewidth = 1) +
+  labs(title    = "Q-Q plot de residuos estandarizados",
+       subtitle = "Si los puntos siguen la línea, los residuos son normales",
+       x = "Cuantiles teóricos", y = "Cuantiles observados") +
+  formato_grafica
+
+print(grafico_qq_residuos)
+
+# Scale-location (homocedasticidad)
+grafico_scale_location <- ggplot(
+  data_modelo, aes(x = ajustados, y = sqrt(abs(res_std)))
+) +
+  geom_point(alpha = 0.15, color = "steelblue", size = 0.5) +
+  geom_smooth(method = "loess", color = "red", se = FALSE, linewidth = 0.8) +
+  labs(title    = "Scale-location (verificación de homocedasticidad)",
+       subtitle = "La línea roja debe ser horizontal para confirmar varianza constante",
+       x = "Valores ajustados", y = "√|Residuos estandarizados|") +
+  formato_grafica
+
+print(grafico_scale_location)
+
+# ----------------------------------------------------------
+# Prueba formal de homocedasticidad (Breusch-Pagan)
+# ----------------------------------------------------------
+
+prueba_bp <- bptest(modelo_final)
+cat("\n--- Prueba de Breusch-Pagan (homocedasticidad) ---\n")
+print(prueba_bp)
+
+# ----------------------------------------------------------
+# Prueba formal de normalidad de residuos
+# (muestra aleatoria por eficiencia con 921k filas)
+# ----------------------------------------------------------
+
+set.seed(123)
+muestra_residuos <- sample(data_modelo$residuos, size = 5000)
+prueba_sw <- shapiro.test(muestra_residuos)
+cat("\n--- Prueba de Shapiro-Wilk sobre muestra de residuos (n=5000) ---\n")
+print(prueba_sw)
+
+# ----------------------------------------------------------
+# Bondad de ajuste — R² y R² ajustado
+# ----------------------------------------------------------
+
+s_final <- summary(modelo_final)
+cat("\n--- Bondad de ajuste del modelo final ---\n")
+cat("R²:         ", round(s_final$r.squared,     4), "\n")
+cat("R² ajustado:", round(s_final$adj.r.squared,  4), "\n")
+cat("F-estadístico:", round(s_final$fstatistic[1], 2), "\n")
+cat("Valor p (F): < 0.0001\n")
+
+# ----------------------------------------------------------
+# Heterogeneidad por barrio — modelos por subgrupo
+# ----------------------------------------------------------
+
+barrios <- levels(data$PU_Borough)
+
+lista_modelos_barrio <- lapply(barrios, function(b) {
+  datos_b <- data %>% filter(PU_Borough == b)
+  if (nrow(datos_b) > 100) {
+    m <- lm(log_trip_count ~ hour + holiday_usa + payment_type +
+              passenger_count + tmax_f + rain, data = datos_b)
+    s <- summary(m)
+    data.frame(
+      Barrio      = b,
+      N           = nrow(datos_b),
+      R2          = round(s$r.squared,     4),
+      R2_ajustado = round(s$adj.r.squared, 4),
+      Coef_hour   = round(coef(m)["hour"],        6),
+      Coef_tmax   = round(coef(m)["tmax_f"],      6),
+      Coef_rain1  = round(coef(m)["rain1"],        6)
+    )
+  }
+})
+
+tabla_heterogeneidad <- bind_rows(lista_modelos_barrio)
+
+tabla_heterogeneidad_gt <- tabla_heterogeneidad %>%
+  gt() %>%
+  tab_header(title = md("**Heterogeneidad del modelo por barrio de origen**")) %>%
+  fmt_number(columns = c(R2, R2_ajustado, Coef_hour, Coef_tmax, Coef_rain1),
+             decimals = 6) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(table.width = pct(100), heading.align = "center",
+              table.font.size = px(12), data_row.padding = px(6))
+
+invisible(tabla_heterogeneidad_gt)
+print(tabla_heterogeneidad)
+
+# ----------------------------------------------------------
+# Gráfico de coeficientes del modelo final
+# ----------------------------------------------------------
+
+grafico_coeficientes <- tabla_coeficientes %>%
+  filter(Variable != "(Intercept)") %>%
+  ggplot(aes(x = reorder(Variable, Coeficiente), y = Coeficiente)) +
+  geom_col(fill = "steelblue") +
+  geom_errorbar(aes(ymin = IC_inferior, ymax = IC_superior),
+                width = 0.3, color = "darkblue", linewidth = 0.7) +
+  coord_flip() +
+  labs(title    = "Coeficientes del modelo final con IC al 95%",
+       subtitle = "Variables ordenadas por magnitud del coeficiente",
+       x = "Variable", y = "Coeficiente") +
+  formato_grafica
+
+print(grafico_coeficientes)
