@@ -1095,4 +1095,306 @@ writeLines(resultados_txt, file.path(carpeta_output, "R00_resultados_pruebas.txt
 
 cat("\nExportación completa. Archivos en:", carpeta_output, "\n")
 
-                      
+ # ==========================================================
+# Bloque 8 — Dashboard interactivo en Shiny
+# ==========================================================
+
+# ----------------------------------------------------------
+# Preparación de objetos para el dashboard
+# ----------------------------------------------------------
+
+# El modelo final ya está entrenado: modelo_final
+# Guardar para usarlo dentro de Shiny
+modelo_shiny <- modelo_final
+
+# Niveles de barrios y tipos de pago disponibles
+barrios_disponibles <- levels(data$PU_Borough)
+barrios_do          <- levels(data$DO_Borough)
+pagos_disponibles   <- levels(data$payment_type)
+
+# Resumen por barrio para comparador
+resumen_barrio_dash <- data %>%
+  group_by(PU_Borough) %>%
+  summarise(
+    Promedio_viajes = round(mean(trip_count), 2),
+    Mediana_viajes  = round(median(trip_count), 2),
+    Promedio_log    = round(mean(log_trip_count), 4),
+    Promedio_tarifa = round(mean(fare_per_trip, na.rm = TRUE), 2)
+  )
+
+# Resumen por hora para análisis horario
+resumen_hora_dash <- data %>%
+  group_by(hour) %>%
+  summarise(
+    Promedio_viajes = round(mean(trip_count), 2),
+    Promedio_log    = round(mean(log_trip_count), 4),
+    IC_inf          = t.test(log_trip_count)$conf.int[1],
+    IC_sup          = t.test(log_trip_count)$conf.int[2]
+  )
+
+# ----------------------------------------------------------
+# Interfaz del dashboard (UI)
+# ----------------------------------------------------------
+
+ui <- dashboardPage(
+  skin = "blue",
+
+  dashboardHeader(title = "Demanda de taxis NYC"),
+
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Predictor de viajes",   tabName = "predictor",   icon = icon("taxi")),
+      menuItem("Estimador de tarifa",   tabName = "tarifa",      icon = icon("dollar-sign")),
+      menuItem("Comparador de barrios", tabName = "comparador",  icon = icon("map")),
+      menuItem("Análisis por hora",     tabName = "horas",       icon = icon("clock"))
+    )
+  ),
+
+  dashboardBody(
+    tabItems(
+
+      # ---- Hoja 1: Predictor de viajes ----
+      tabItem(
+        tabName = "predictor",
+        h2("Estimación del número de viajes"),
+        p("Selecciona las condiciones del viaje y obtén el número estimado de viajes."),
+        fluidRow(
+          box(
+            title = "Parámetros de entrada", status = "primary", solidHeader = TRUE, width = 4,
+            selectInput("pred_barrio",  "Barrio de origen:",
+                        choices = barrios_disponibles, selected = "Manhattan"),
+            sliderInput("pred_hora",    "Hora del día:",
+                        min = 0, max = 23, value = 8, step = 1),
+            selectInput("pred_pago",    "Tipo de pago:",
+                        choices = pagos_disponibles, selected = "1"),
+            sliderInput("pred_temp",    "Temperatura máxima (°F):",
+                        min = 10, max = 100, value = 65, step = 1),
+            selectInput("pred_lluvia",  "¿Llueve?",
+                        choices = c("No" = "0", "Sí" = "1"), selected = "0"),
+            sliderInput("pred_pasajeros", "Promedio de pasajeros:",
+                        min = 1, max = 5, value = 2, step = 1),
+            selectInput("pred_festivo", "¿Es día festivo?",
+                        choices = c("No" = "0", "Sí" = "1"), selected = "0")
+          ),
+          box(
+            title = "Resultado estimado", status = "success", solidHeader = TRUE, width = 8,
+            valueBoxOutput("caja_viajes_estimados", width = 6),
+            valueBoxOutput("caja_franja",           width = 6),
+            br(),
+            plotOutput("grafico_predictor_hora", height = "300px")
+          )
+        )
+      ),
+
+      # ---- Hoja 2: Estimador de tarifa ----
+      tabItem(
+        tabName = "tarifa",
+        h2("Estimación de tarifa promedio por viaje"),
+        p("Visualiza el precio promedio estimado por viaje según las condiciones seleccionadas."),
+        fluidRow(
+          box(
+            title = "Filtros", status = "primary", solidHeader = TRUE, width = 4,
+            selectInput("tar_barrio",  "Barrio de origen:",
+                        choices = barrios_disponibles, selected = "Manhattan"),
+            selectInput("tar_pago",    "Tipo de pago:",
+                        choices = pagos_disponibles, selected = "1"),
+            sliderInput("tar_hora",    "Hora del día:",
+                        min = 0, max = 23, value = 8, step = 1)
+          ),
+          box(
+            title = "Tarifa estimada", status = "success", solidHeader = TRUE, width = 8,
+            valueBoxOutput("caja_tarifa_estimada", width = 6),
+            br(),
+            plotOutput("grafico_tarifa_barrio", height = "300px")
+          )
+        )
+      ),
+
+      # ---- Hoja 3: Comparador de barrios ----
+      tabItem(
+        tabName = "comparador",
+        h2("Comparación de demanda entre barrios"),
+        p("Selecciona dos barrios para comparar su demanda de viajes."),
+        fluidRow(
+          box(
+            title = "Selección", status = "primary", solidHeader = TRUE, width = 4,
+            selectInput("comp_barrio1", "Barrio 1:",
+                        choices = barrios_disponibles, selected = "Manhattan"),
+            selectInput("comp_barrio2", "Barrio 2:",
+                        choices = barrios_disponibles, selected = "Brooklyn")
+          ),
+          box(
+            title = "Estadísticos comparativos", status = "info", solidHeader = TRUE, width = 8,
+            tableOutput("tabla_comparacion_barrios"),
+            br(),
+            plotOutput("grafico_comparacion_barrios", height = "300px")
+          )
+        )
+      ),
+
+      # ---- Hoja 4: Análisis por hora ----
+      tabItem(
+        tabName = "horas",
+        h2("Evolución de la demanda a lo largo del día"),
+        p("Visualiza cómo varía el número de viajes hora a hora, con horas pico destacadas."),
+        fluidRow(
+          box(
+            title = "Filtro por barrio", status = "primary", solidHeader = TRUE, width = 4,
+            selectInput("hora_barrio", "Barrio:",
+                        choices = c("Todos", barrios_disponibles), selected = "Todos")
+          ),
+          box(
+            title = "Demanda por hora del día", status = "info", solidHeader = TRUE, width = 8,
+            plotOutput("grafico_horas_dash", height = "350px")
+          )
+        )
+      )
+    )
+  )
+)
+
+# ----------------------------------------------------------
+# Lógica del servidor (Server)
+# ----------------------------------------------------------
+
+server <- function(input, output, session) {
+
+  # ---- Predictor de viajes ----
+
+  viajes_estimados <- reactive({
+    nuevos_datos <- data.frame(
+      hour            = as.integer(input$pred_hora),
+      holiday_usa     = factor(input$pred_festivo,    levels = levels(data$holiday_usa)),
+      PU_Borough      = factor(input$pred_barrio,     levels = levels(data$PU_Borough)),
+      payment_type    = factor(input$pred_pago,       levels = levels(data$payment_type)),
+      passenger_count = as.numeric(input$pred_pasajeros),
+      tmax_f          = as.numeric(input$pred_temp),
+      rain            = factor(input$pred_lluvia,     levels = levels(data$rain))
+    )
+    pred_log <- predict(modelo_shiny, newdata = nuevos_datos)
+    round(exp(pred_log) - 1, 0)
+  })
+
+  output$caja_viajes_estimados <- renderValueBox({
+    valueBox(
+      value    = viajes_estimados(),
+      subtitle = "Viajes estimados",
+      icon     = icon("taxi"),
+      color    = "blue"
+    )
+  })
+
+  output$caja_franja <- renderValueBox({
+    franja <- case_when(
+      input$pred_hora >= 7  & input$pred_hora <= 9  ~ "Hora pico mañana",
+      input$pred_hora >= 17 & input$pred_hora <= 19 ~ "Hora pico tarde",
+      TRUE ~ "Hora valle"
+    )
+    valueBox(
+      value    = franja,
+      subtitle = "Franja horaria",
+      icon     = icon("clock"),
+      color    = "green"
+    )
+  })
+
+  output$grafico_predictor_hora <- renderPlot({
+    resumen_hora_dash %>%
+      ggplot(aes(x = hour, y = Promedio_viajes)) +
+      geom_line(color = "steelblue", linewidth = 1) +
+      geom_point(color = "steelblue", size = 2) +
+      geom_vline(xintercept = input$pred_hora, color = "red", linewidth = 1.2, linetype = "dashed") +
+      annotate("rect", xmin = 7,  xmax = 9,  ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "darkblue") +
+      annotate("rect", xmin = 17, xmax = 19, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "darkblue") +
+      labs(title = "Promedio de viajes por hora — la línea roja indica la hora seleccionada",
+           x = "Hora", y = "Promedio de viajes") +
+      scale_x_continuous(breaks = 0:23) +
+      formato_grafica
+  })
+
+  # ---- Estimador de tarifa ----
+
+  tarifa_estimada <- reactive({
+    data %>%
+      filter(PU_Borough    == input$tar_barrio,
+             payment_type  == input$tar_pago,
+             hour          == input$tar_hora) %>%
+      summarise(tarifa = round(mean(fare_per_trip, na.rm = TRUE), 2)) %>%
+      pull(tarifa)
+  })
+
+  output$caja_tarifa_estimada <- renderValueBox({
+    t <- tarifa_estimada()
+    valueBox(
+      value    = ifelse(is.nan(t) | is.na(t), "Sin datos", paste0("$", t)),
+      subtitle = "Tarifa promedio por viaje (USD)",
+      icon     = icon("dollar-sign"),
+      color    = "green"
+    )
+  })
+
+  output$grafico_tarifa_barrio <- renderPlot({
+    resumen_barrio_dash %>%
+      ggplot(aes(x = reorder(PU_Borough, -Promedio_tarifa), y = Promedio_tarifa)) +
+      geom_col(fill = "steelblue") +
+      geom_col(data = resumen_barrio_dash %>% filter(PU_Borough == input$tar_barrio),
+               fill = "darkblue") +
+      labs(title = "Tarifa promedio por viaje según barrio de origen",
+           x = "Barrio", y = "USD promedio por viaje") +
+      formato_grafica
+  })
+
+  # ---- Comparador de barrios ----
+
+  output$tabla_comparacion_barrios <- renderTable({
+    resumen_barrio_dash %>%
+      filter(PU_Borough %in% c(input$comp_barrio1, input$comp_barrio2)) %>%
+      rename(Barrio = PU_Borough,
+             "Promedio viajes"  = Promedio_viajes,
+             "Mediana viajes"   = Mediana_viajes,
+             "log(trip_count)"  = Promedio_log,
+             "Tarifa promedio"  = Promedio_tarifa)
+  })
+
+  output$grafico_comparacion_barrios <- renderPlot({
+    data %>%
+      filter(PU_Borough %in% c(input$comp_barrio1, input$comp_barrio2)) %>%
+      ggplot(aes(x = PU_Borough, y = log_trip_count, fill = PU_Borough)) +
+      geom_boxplot(show.legend = FALSE) +
+      scale_fill_manual(values = c("steelblue", "darkblue")) +
+      labs(title = paste("Distribución de viajes:", input$comp_barrio1, "vs.", input$comp_barrio2),
+           x = "Barrio", y = "log(trip_count + 1)") +
+      formato_grafica
+  })
+
+  # ---- Análisis por hora ----
+
+  output$grafico_horas_dash <- renderPlot({
+    datos_hora <- if (input$hora_barrio == "Todos") {
+      data
+    } else {
+      data %>% filter(PU_Borough == input$hora_barrio)
+    }
+
+    datos_hora %>%
+      group_by(hour) %>%
+      summarise(Promedio = mean(log_trip_count),
+                IC_inf   = t.test(log_trip_count)$conf.int[1],
+                IC_sup   = t.test(log_trip_count)$conf.int[2]) %>%
+      ggplot(aes(x = hour, y = Promedio)) +
+      geom_ribbon(aes(ymin = IC_inf, ymax = IC_sup), alpha = 0.2, fill = "steelblue") +
+      geom_line(color = "steelblue", linewidth = 1) +
+      geom_point(color = "steelblue", size = 2) +
+      annotate("rect", xmin = 7,  xmax = 9,  ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "darkblue") +
+      annotate("rect", xmin = 17, xmax = 19, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "darkblue") +
+      labs(title    = paste("Demanda por hora —", input$hora_barrio),
+           subtitle = "Zonas sombreadas = horas pico. Banda = IC 95%",
+           x = "Hora", y = "Promedio log(viajes + 1)") +
+      scale_x_continuous(breaks = 0:23) +
+      formato_grafica
+  })
+
+}
+
+shinyApp(ui = ui, server = server)
+                     
