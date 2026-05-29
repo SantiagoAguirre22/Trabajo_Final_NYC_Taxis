@@ -418,3 +418,301 @@ grafico_qq_log <- ggplot(data, aes(sample = log_trip_count)) +
   formato_grafica
 
 print(grafico_qq_log)
+
+# ==========================================================
+# Bloque 3 — Comportamiento de la demanda por variable
+# ==========================================================
+
+# Por barrio de origen
+grafico_barrio <- ggplot(
+  data, aes(x = reorder(PU_Borough, log_trip_count, median), y = log_trip_count)
+) +
+  geom_boxplot(fill = "steelblue") +
+  labs(title = "log(trip_count + 1) por barrio de origen",
+       x = "Barrio", y = "log(Número de viajes + 1)") +
+  formato_grafica
+
+print(grafico_barrio)
+
+# Promedio por hora del día
+grafico_hora <- data %>%
+  group_by(hour) %>%
+  summarise(promedio_viajes = mean(log_trip_count, na.rm = TRUE)) %>%
+  ggplot(aes(x = hour, y = promedio_viajes)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 2) +
+  labs(title = "Promedio de log(trip_count + 1) por hora del día",
+       x = "Hora", y = "Promedio log(viajes + 1)") +
+  scale_x_continuous(breaks = 0:23) +
+  formato_grafica
+
+print(grafico_hora)
+
+# Por tipo de pago
+grafico_pago <- ggplot(
+  data,
+  aes(x = factor(payment_type, levels = c(1, 2), labels = c("Tarjeta", "Efectivo")),
+      y = log_trip_count)
+) +
+  geom_boxplot(fill = "steelblue") +
+  labs(title = "log(trip_count + 1) por tipo de pago",
+       x = "Tipo de pago", y = "log(Número de viajes + 1)") +
+  formato_grafica
+
+print(grafico_pago)
+
+# Festivo vs. día ordinario
+grafico_festivo_exp <- ggplot(
+  data,
+  aes(x = factor(holiday_usa, levels = c(0, 1),
+                 labels = c("Día ordinario", "Festivo")),
+      y = log_trip_count)
+) +
+  geom_boxplot(fill = "steelblue") +
+  labs(title = "log(trip_count + 1): festivos vs. días ordinarios",
+       x = "Tipo de día", y = "log(Número de viajes + 1)") +
+  formato_grafica
+
+print(grafico_festivo_exp)
+
+# Vs. temperatura máxima
+grafico_temp <- ggplot(data, aes(x = tmax_f, y = log_trip_count)) +
+  geom_point(alpha = 0.2, color = "steelblue", size = 0.6) +
+  geom_smooth(method = "lm", color = "darkblue", se = TRUE) +
+  labs(title = "log(trip_count + 1) vs. temperatura máxima",
+       x = "Temperatura máxima (°F)", y = "log(Número de viajes + 1)") +
+  formato_grafica
+
+print(grafico_temp)
+
+# Lluvia vs. sin lluvia
+grafico_lluvia <- ggplot(
+  data,
+  aes(x = factor(rain, levels = c(0, 1), labels = c("Sin lluvia", "Con lluvia")),
+      y = log_trip_count)
+) +
+  geom_boxplot(fill = "steelblue") +
+  labs(title = "log(trip_count + 1): días con lluvia vs. sin lluvia",
+       x = "Condición climática", y = "log(Número de viajes + 1)") +
+  formato_grafica
+
+print(grafico_lluvia)
+
+# Resumen estadístico por barrio
+tabla_barrio <- data %>%
+  group_by(PU_Borough) %>%
+  summarise(
+    N          = n(),
+    Promedio   = round(mean(trip_count),   2),
+    Mediana    = round(median(trip_count), 2),
+    Desviacion = round(sd(trip_count),     2),
+    Maximo     = max(trip_count),
+    Minimo     = min(trip_count)
+  ) %>%
+  arrange(desc(Promedio))
+
+tabla_barrio_gt <- tabla_barrio %>%
+  gt() %>%
+  tab_header(title = md("**Resumen de trip_count por barrio de origen**")) %>%
+  fmt_number(columns = c(Promedio, Mediana, Desviacion), decimals = 2) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(table.width = pct(90), heading.align = "center",
+              table.font.size = px(13), data_row.padding = px(6))
+
+invisible(tabla_barrio_gt)
+
+# ==========================================================
+# Bloque 4 — Diferencias en la demanda por tipo de día,
+#             franja horaria y barrio de origen
+# ==========================================================
+
+# ----------------------------------------------------------
+# Festivos vs. días ordinarios
+# ----------------------------------------------------------
+
+prueba_festivo <- t.test(
+  log_trip_count ~ holiday_usa, data = data, conf.level = 0.95
+)
+
+cat("\n--- Prueba t: festivos vs. días ordinarios ---\n")
+print(prueba_festivo)
+
+tabla_festivo <- data %>%
+  group_by(holiday_usa) %>%
+  summarise(
+    Grupo       = ifelse(first(holiday_usa) == 1, "Festivo", "Día ordinario"),
+    N           = n(),
+    Promedio    = round(mean(log_trip_count), 4),
+    Desviacion  = round(sd(log_trip_count),   4),
+    IC_Inferior = round(t.test(log_trip_count, conf.level = 0.95)$conf.int[1], 4),
+    IC_Superior = round(t.test(log_trip_count, conf.level = 0.95)$conf.int[2], 4)
+  ) %>%
+  select(Grupo, N, Promedio, Desviacion, IC_Inferior, IC_Superior)
+
+tabla_festivo_gt <- tabla_festivo %>%
+  gt() %>%
+  tab_header(title = md("**Comparación de log(trip_count + 1): festivos vs. días ordinarios**")) %>%
+  fmt_number(columns = c(Promedio, Desviacion, IC_Inferior, IC_Superior), decimals = 4) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(table.width = pct(90), heading.align = "center",
+              table.font.size = px(13), data_row.padding = px(6))
+
+invisible(tabla_festivo_gt)
+
+resumen_festivo <- data %>%
+  group_by(holiday_usa) %>%
+  summarise(
+    Grupo    = ifelse(first(holiday_usa) == 1, "Festivo", "Día ordinario"),
+    Promedio = mean(log_trip_count),
+    IC_Inf   = t.test(log_trip_count)$conf.int[1],
+    IC_Sup   = t.test(log_trip_count)$conf.int[2]
+  )
+
+grafico_festivo_ic <- ggplot(resumen_festivo, aes(x = Grupo, y = Promedio)) +
+  geom_col(fill = "steelblue", width = 0.5) +
+  geom_errorbar(aes(ymin = IC_Inf, ymax = IC_Sup),
+                width = 0.15, color = "darkblue", linewidth = 0.8) +
+  labs(title    = "Promedio de log(trip_count + 1): festivos vs. días ordinarios",
+       subtitle = "Barras de error = intervalo de confianza al 95%",
+       x = "Tipo de día", y = "Promedio log(viajes + 1)") +
+  formato_grafica
+
+print(grafico_festivo_ic)
+
+# ----------------------------------------------------------
+# Horas pico vs. horas valle
+# ----------------------------------------------------------
+
+grupo_pico  <- data %>% filter(franja_horaria != "Hora valle") %>% pull(log_trip_count)
+grupo_valle <- data %>% filter(franja_horaria == "Hora valle") %>% pull(log_trip_count)
+
+prueba_horas <- t.test(x = grupo_pico, y = grupo_valle, conf.level = 0.95)
+
+cat("\n--- Prueba t: horas pico vs. horas valle ---\n")
+print(prueba_horas)
+
+tabla_horas <- data %>%
+  group_by(franja_horaria) %>%
+  summarise(
+    N           = n(),
+    Promedio    = round(mean(log_trip_count), 4),
+    Desviacion  = round(sd(log_trip_count),   4),
+    IC_Inferior = round(t.test(log_trip_count, conf.level = 0.95)$conf.int[1], 4),
+    IC_Superior = round(t.test(log_trip_count, conf.level = 0.95)$conf.int[2], 4)
+  ) %>%
+  rename(Franja = franja_horaria) %>%
+  arrange(desc(Promedio))
+
+tabla_horas_gt <- tabla_horas %>%
+  gt() %>%
+  tab_header(title = md("**Comparación de log(trip_count + 1) por franja horaria**")) %>%
+  fmt_number(columns = c(Promedio, Desviacion, IC_Inferior, IC_Superior), decimals = 4) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(table.width = pct(95), heading.align = "center",
+              table.font.size = px(13), data_row.padding = px(6))
+
+invisible(tabla_horas_gt)
+
+resumen_horas <- data %>%
+  group_by(franja_horaria) %>%
+  summarise(
+    Promedio = mean(log_trip_count),
+    IC_Inf   = t.test(log_trip_count)$conf.int[1],
+    IC_Sup   = t.test(log_trip_count)$conf.int[2]
+  )
+
+grafico_horas_ic <- ggplot(
+  resumen_horas, aes(x = reorder(franja_horaria, -Promedio), y = Promedio)
+) +
+  geom_col(fill = "steelblue", width = 0.5) +
+  geom_errorbar(aes(ymin = IC_Inf, ymax = IC_Sup),
+                width = 0.15, color = "darkblue", linewidth = 0.8) +
+  labs(title    = "Promedio de log(trip_count + 1) por franja horaria",
+       subtitle = "Barras de error = intervalo de confianza al 95%",
+       x = "Franja horaria", y = "Promedio log(viajes + 1)") +
+  formato_grafica
+
+print(grafico_horas_ic)
+
+grafico_hora_detalle <- data %>%
+  group_by(hour) %>%
+  summarise(
+    Promedio = mean(log_trip_count),
+    IC_Inf   = t.test(log_trip_count)$conf.int[1],
+    IC_Sup   = t.test(log_trip_count)$conf.int[2]
+  ) %>%
+  ggplot(aes(x = hour, y = Promedio)) +
+  geom_ribbon(aes(ymin = IC_Inf, ymax = IC_Sup), alpha = 0.2, fill = "steelblue") +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 2) +
+  annotate("rect", xmin = 7,  xmax = 9,  ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "darkblue") +
+  annotate("rect", xmin = 17, xmax = 19, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "darkblue") +
+  labs(title    = "Promedio de log(trip_count + 1) por hora del día",
+       subtitle = "Zonas sombreadas = horas pico (7-9am y 5-7pm). Banda = IC 95%",
+       x = "Hora", y = "Promedio log(viajes + 1)") +
+  scale_x_continuous(breaks = 0:23) +
+  formato_grafica
+
+print(grafico_hora_detalle)
+
+# ----------------------------------------------------------
+# Comparación entre barrios
+# ----------------------------------------------------------
+
+anova_barrios <- aov(log_trip_count ~ PU_Borough, data = data)
+
+cat("\n--- ANOVA: diferencias entre barrios ---\n")
+print(summary(anova_barrios))
+
+tabla_barrios_ic <- data %>%
+  group_by(PU_Borough) %>%
+  summarise(
+    N           = n(),
+    Promedio    = round(mean(log_trip_count), 4),
+    Desviacion  = round(sd(log_trip_count),   4),
+    IC_Inferior = round(t.test(log_trip_count, conf.level = 0.95)$conf.int[1], 4),
+    IC_Superior = round(t.test(log_trip_count, conf.level = 0.95)$conf.int[2], 4)
+  ) %>%
+  rename(Barrio = PU_Borough) %>%
+  arrange(desc(Promedio))
+
+tabla_barrios_ic_gt <- tabla_barrios_ic %>%
+  gt() %>%
+  tab_header(title = md("**Comparación de log(trip_count + 1) entre barrios de origen**")) %>%
+  fmt_number(columns = c(Promedio, Desviacion, IC_Inferior, IC_Superior), decimals = 4) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(table.width = pct(95), heading.align = "center",
+              table.font.size = px(13), data_row.padding = px(6))
+
+invisible(tabla_barrios_ic_gt)
+
+resumen_barrios <- data %>%
+  group_by(PU_Borough) %>%
+  summarise(
+    Promedio = mean(log_trip_count),
+    IC_Inf   = t.test(log_trip_count)$conf.int[1],
+    IC_Sup   = t.test(log_trip_count)$conf.int[2]
+  )
+
+grafico_barrios_ic <- ggplot(
+  resumen_barrios, aes(x = reorder(PU_Borough, -Promedio), y = Promedio)
+) +
+  geom_col(fill = "steelblue", width = 0.6) +
+  geom_errorbar(aes(ymin = IC_Inf, ymax = IC_Sup),
+                width = 0.2, color = "darkblue", linewidth = 0.8) +
+  labs(title    = "Promedio de log(trip_count + 1) por barrio de origen",
+       subtitle = "Barras de error = intervalo de confianza al 95%",
+       x = "Barrio de origen", y = "Promedio log(viajes + 1)") +
+  formato_grafica
+
+print(grafico_barrios_ic)
+
+grafico_barrios_box <- ggplot(
+  data, aes(x = reorder(PU_Borough, log_trip_count, median), y = log_trip_count)
+) +
+  geom_boxplot(fill = "steelblue", outlier.size = 0.5, outlier.alpha = 0.3) +
+  labs(title = "Distribución de log(trip_count + 1) por barrio de origen",
+       x = "Barrio de origen", y = "log(Número de viajes + 1)") +
+  formato_grafica
+
+print(grafico_barrios_box)
