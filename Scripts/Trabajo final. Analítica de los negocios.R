@@ -281,3 +281,140 @@ tabla_na <- data.frame(
 if (nrow(tabla_na) == 0) {
   cat("No hay valores faltantes en la base limpia.\n")
 } else { print(tabla_na) }
+
+# ==========================================================
+# Bloque 2 — Descripción general de la base y justificación
+#             de la transformación logarítmica
+# ==========================================================
+
+# ----------------------------------------------------------
+# Estadísticos descriptivos generales
+# ----------------------------------------------------------
+
+variables_numericas <- data %>%
+  select(trip_count, log_trip_count, hour, passenger_count,
+         tmax_f, prcp_in, trip_distance_sum, duration_sum,
+         fare_amount_sum, total_amount_sum)
+
+tabla_descriptiva <- variables_numericas %>%
+  summarise(across(
+    everything(),
+    list(
+      Minimo     = ~min(.x,    na.rm = TRUE),
+      Promedio   = ~mean(.x,   na.rm = TRUE),
+      Mediana    = ~median(.x, na.rm = TRUE),
+      Desviacion = ~sd(.x,     na.rm = TRUE),
+      Maximo     = ~max(.x,    na.rm = TRUE)
+    )
+  )) %>%
+  pivot_longer(
+    cols          = everything(),
+    names_to      = c("Variable", ".value"),
+    names_pattern = "(.+)_(Minimo|Promedio|Mediana|Desviacion|Maximo)"
+  )
+
+tabla_descriptiva_gt <- tabla_descriptiva %>%
+  gt() %>%
+  tab_header(title = md("**Estadísticos descriptivos — variables numéricas**")) %>%
+  fmt_number(columns = c(Minimo, Promedio, Mediana, Desviacion, Maximo), decimals = 2) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(table.width = pct(100), heading.align = "center",
+              table.font.size = px(12), data_row.padding = px(6))
+
+invisible(tabla_descriptiva_gt)
+
+# ----------------------------------------------------------
+# Diagnóstico de la variable dependiente
+# ----------------------------------------------------------
+
+media_tc      <- mean(data$trip_count)
+mediana_tc    <- median(data$trip_count)
+asimetria_tc  <- skewness(data$trip_count)
+curtosis_tc   <- kurtosis(data$trip_count)
+media_log     <- mean(data$log_trip_count)
+mediana_log   <- median(data$log_trip_count)
+asimetria_log <- skewness(data$log_trip_count)
+curtosis_log  <- kurtosis(data$log_trip_count)
+
+cat("\n=== Diagnóstico de trip_count ===\n")
+cat("--- Original ---\n")
+cat("Media:     ", round(media_tc, 2), "\n")
+cat("Mediana:   ", round(mediana_tc, 2), "\n")
+cat("Asimetría: ", round(asimetria_tc, 4), "\n")
+cat("Curtosis:  ", round(curtosis_tc, 4), "\n")
+cat("\n--- log(trip_count + 1) ---\n")
+cat("Media:     ", round(media_log, 2), "\n")
+cat("Mediana:   ", round(mediana_log, 2), "\n")
+cat("Asimetría: ", round(asimetria_log, 4), "\n")
+cat("Curtosis:  ", round(curtosis_log, 4), "\n")
+
+# Tabla comparativa
+tabla_comparacion_log <- data.frame(
+  Estadistico = c("Media", "Mediana", "Asimetría", "Curtosis"),
+  Original    = c(round(media_tc, 2), round(mediana_tc, 2),
+                  round(asimetria_tc, 4), round(curtosis_tc, 4)),
+  Log         = c(round(media_log, 2), round(mediana_log, 2),
+                  round(asimetria_log, 4), round(curtosis_log, 4))
+)
+
+tabla_comparacion_log_gt <- tabla_comparacion_log %>%
+  gt() %>%
+  tab_header(
+    title    = md("**Comparación: trip_count original vs. log(trip_count + 1)**"),
+    subtitle = md("*Justificación de la transformación logarítmica*")
+  ) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(table.width = pct(70), heading.align = "center",
+              table.font.size = px(13), data_row.padding = px(6))
+
+invisible(tabla_comparacion_log_gt)
+
+# Histograma original
+grafico_hist_original <- ggplot(data, aes(x = trip_count)) +
+  geom_histogram(fill = "steelblue", color = "white", bins = 60) +
+  labs(
+    title    = "Distribución de trip_count (original)",
+    subtitle = paste0("Asimetría = ", round(asimetria_tc, 2),
+                      "  |  Curtosis = ", round(curtosis_tc, 2),
+                      "  |  Media = ", round(media_tc, 2),
+                      "  |  Mediana = ", round(mediana_tc, 2)),
+    x = "Número de viajes", y = "Frecuencia"
+  ) + formato_grafica
+
+print(grafico_hist_original)
+
+# Histograma transformado
+grafico_hist_log <- ggplot(data, aes(x = log_trip_count)) +
+  geom_histogram(fill = "steelblue", color = "white", bins = 60) +
+  labs(
+    title    = "Distribución de log(trip_count + 1)",
+    subtitle = paste0("Asimetría = ", round(asimetria_log, 2),
+                      "  |  Curtosis = ", round(curtosis_log, 2),
+                      "  |  Media = ", round(media_log, 2),
+                      "  |  Mediana = ", round(mediana_log, 2)),
+    x = "log(Número de viajes + 1)", y = "Frecuencia"
+  ) + formato_grafica
+
+print(grafico_hist_log)
+
+# Q-Q plot original
+grafico_qq_original <- ggplot(data, aes(sample = trip_count)) +
+  stat_qq(color = "steelblue", alpha = 0.4, size = 0.8) +
+  stat_qq_line(color = "darkblue", linewidth = 1) +
+  labs(title    = "Q-Q plot — trip_count original",
+       subtitle = "Si los puntos siguen la línea, hay normalidad",
+       x = "Cuantiles teóricos", y = "Cuantiles observados") +
+  formato_grafica
+
+print(grafico_qq_original)
+
+# Q-Q plot transformado
+grafico_qq_log <- ggplot(data, aes(sample = log_trip_count)) +
+  stat_qq(color = "steelblue", alpha = 0.4, size = 0.8) +
+  stat_qq_line(color = "darkblue", linewidth = 1) +
+  labs(title    = "Q-Q plot — log(trip_count + 1)",
+       subtitle = "Si los puntos siguen la línea, hay normalidad",
+       x = "Cuantiles teóricos", y = "Cuantiles observados") +
+  formato_grafica
+
+print(grafico_qq_log)
