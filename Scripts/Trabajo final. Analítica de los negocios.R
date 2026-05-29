@@ -1011,3 +1011,88 @@ grafico_coeficientes <- tabla_coeficientes %>%
   formato_grafica
 
 print(grafico_coeficientes)
+# ==========================================================
+# Bloque 7 — Exportación de resultados
+# ==========================================================
+
+carpeta_output <- "C:/Users/Usuario/Documents/Outputs_Trabajo_Final"
+if (!dir.exists(carpeta_output)) dir.create(carpeta_output)
+
+guardar_grafico <- function(grafico, nombre) {
+  ggsave(filename = file.path(carpeta_output, nombre),
+         plot = grafico, width = 10, height = 6, dpi = 150)
+}
+
+# Bloque 1 — Unknown
+guardar_grafico(grafico_unknown_tc, "01_unknown_vs_trip_count.png")
+
+# Bloque 2 — Diagnóstico logarítmico
+guardar_grafico(grafico_hist_original,  "02_hist_trip_count_original.png")
+guardar_grafico(grafico_hist_log,       "03_hist_trip_count_log.png")
+guardar_grafico(grafico_qq_original,    "04_qq_original.png")
+guardar_grafico(grafico_qq_log,         "05_qq_log.png")
+
+# Bloque 3 — Exploratorios
+guardar_grafico(grafico_barrio,       "06_exploratorio_barrio.png")
+guardar_grafico(grafico_hora,         "07_exploratorio_hora.png")
+guardar_grafico(grafico_pago,         "08_exploratorio_pago.png")
+guardar_grafico(grafico_festivo_exp,  "09_exploratorio_festivo.png")
+guardar_grafico(grafico_temp,         "10_exploratorio_temperatura.png")
+guardar_grafico(grafico_lluvia,       "11_exploratorio_lluvia.png")
+
+# Bloque 4 — Diferencias en la demanda
+guardar_grafico(grafico_festivo_ic,    "12_festivo_vs_ordinario_IC.png")
+guardar_grafico(grafico_horas_ic,      "13_franjas_horarias_IC.png")
+guardar_grafico(grafico_hora_detalle,  "14_hora_a_hora_IC.png")
+guardar_grafico(grafico_barrios_ic,    "15_barrios_IC.png")
+guardar_grafico(grafico_barrios_box,   "16_barrios_boxplot.png")
+
+# Bloque 6 — Validación del modelo
+guardar_grafico(grafico_real_vs_ajustado,    "17_real_vs_ajustado.png")
+guardar_grafico(grafico_residuos_ajustados,  "18_residuos_vs_ajustados.png")
+guardar_grafico(grafico_hist_residuos,       "19_hist_residuos.png")
+guardar_grafico(grafico_qq_residuos,         "20_qq_residuos.png")
+guardar_grafico(grafico_scale_location,      "21_scale_location.png")
+guardar_grafico(grafico_coeficientes,        "22_coeficientes_modelo.png")
+
+# Tablas CSV
+write.csv(tabla_impacto_filtro,        file.path(carpeta_output, "T01_impacto_filtro.csv"),          row.names = FALSE)
+write.csv(tabla_distribucion_barrios,  file.path(carpeta_output, "T02_distribucion_barrios.csv"),     row.names = FALSE)
+write.csv(tabla_descriptiva,           file.path(carpeta_output, "T03_descriptiva_general.csv"),      row.names = FALSE)
+write.csv(tabla_comparacion_log,       file.path(carpeta_output, "T04_comparacion_log.csv"),          row.names = FALSE)
+write.csv(tabla_barrio,                file.path(carpeta_output, "T05_resumen_barrio.csv"),           row.names = FALSE)
+write.csv(tabla_festivo,               file.path(carpeta_output, "T06_festivo_vs_ordinario.csv"),     row.names = FALSE)
+write.csv(tabla_horas,                 file.path(carpeta_output, "T07_franjas_horarias.csv"),         row.names = FALSE)
+write.csv(tabla_barrios_ic,            file.path(carpeta_output, "T08_barrios_IC.csv"),               row.names = FALSE)
+write.csv(tabla_resumen_modelos,       file.path(carpeta_output, "T09_resumen_modelos.csv"),          row.names = FALSE)
+write.csv(tabla_coeficientes,          file.path(carpeta_output, "T10_coeficientes_modelo_final.csv"),row.names = FALSE)
+write.csv(tabla_heterogeneidad,        file.path(carpeta_output, "T11_heterogeneidad_barrio.csv"),    row.names = FALSE)
+
+# Resultados de pruebas estadísticas
+resultados_txt <- capture.output({
+  cat("=== Tratamiento de valores desconocidos ===\n\n")
+  cat("PU_Borough Unknown:   ", n_pu,   "(", round(n_pu/n_total*100,2), "%)\n")
+  cat("DO_Borough Unknown:   ", n_do,   "(", round(n_do/n_total*100,2), "%)\n")
+  cat("passenger_count = 0:  ", n_pass, "(", round(n_pass/n_total*100,2), "%)\n")
+  cat("Total eliminados:     ", n_any,  "(", round(n_any/n_total*100,2), "%)\n\n")
+  cat("--- Prueba t: registros con vs. sin Unknown ---\n")
+  print(prueba_unknown)
+  cat("\n=== Diagnóstico de trip_count ===\n\n")
+  cat("Original — Asimetría:", round(asimetria_tc,4), "| Curtosis:", round(curtosis_tc,4), "\n")
+  cat("Log      — Asimetría:", round(asimetria_log,4), "| Curtosis:", round(curtosis_log,4), "\n")
+  cat("\n=== Diferencias en la demanda ===\n\n")
+  cat("--- Festivos vs. ordinarios ---\n"); print(prueba_festivo)
+  cat("\n--- Horas pico vs. valle ---\n");  print(prueba_horas)
+  cat("\n--- ANOVA barrios ---\n");         print(summary(anova_barrios))
+  cat("\n=== Modelo final — bondad de ajuste ===\n\n")
+  cat("R²:          ", round(s_final$r.squared,    4), "\n")
+  cat("R² ajustado: ", round(s_final$adj.r.squared, 4), "\n")
+  cat("\n--- Breusch-Pagan ---\n"); print(prueba_bp)
+  cat("\n--- Shapiro-Wilk ---\n");  print(prueba_sw)
+})
+
+writeLines(resultados_txt, file.path(carpeta_output, "R00_resultados_pruebas.txt"))
+
+cat("\nExportación completa. Archivos en:", carpeta_output, "\n")
+
+                      
