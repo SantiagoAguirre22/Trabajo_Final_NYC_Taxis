@@ -716,3 +716,130 @@ grafico_barrios_box <- ggplot(
   formato_grafica
 
 print(grafico_barrios_box)
+
+# ==========================================================
+# Bloque 5 — Construcción progresiva del modelo econométrico
+# ==========================================================
+
+# ----------------------------------------------------------
+# Modelo 1: variables temporales (hour + holiday_usa)
+# ----------------------------------------------------------
+
+modelo_1 <- lm(log_trip_count ~ hour + holiday_usa, data = data)
+summary(modelo_1)
+
+# ----------------------------------------------------------
+# Modelo 2: + variables geográficas (+ PU_Borough)
+# ----------------------------------------------------------
+
+modelo_2 <- lm(log_trip_count ~ hour + holiday_usa + PU_Borough, data = data)
+summary(modelo_2)
+
+# ----------------------------------------------------------
+# Modelo 3: + variables operativas (+ payment_type + passenger_count)
+# ----------------------------------------------------------
+
+modelo_3 <- lm(log_trip_count ~ hour + holiday_usa + PU_Borough +
+                 payment_type + passenger_count, data = data)
+summary(modelo_3)
+
+# ----------------------------------------------------------
+# Modelo 4: + variables climáticas (+ tmax_f + rain)
+# ----------------------------------------------------------
+
+modelo_4 <- lm(log_trip_count ~ hour + holiday_usa + PU_Borough +
+                 payment_type + passenger_count + tmax_f + rain, data = data)
+summary(modelo_4)
+
+# ----------------------------------------------------------
+# Tabla resumen comparativa de los 4 modelos
+# ----------------------------------------------------------
+
+extraer_stats <- function(modelo, nombre) {
+  s <- summary(modelo)
+  data.frame(
+    Modelo        = nombre,
+    R2            = round(s$r.squared,      4),
+    R2_ajustado   = round(s$adj.r.squared,  4),
+    AIC           = round(AIC(modelo),      2),
+    BIC           = round(BIC(modelo),      2),
+    F_estadistico = round(s$fstatistic[1],  2),
+    N_variables   = length(coef(modelo)) - 1
+  )
+}
+
+tabla_resumen_modelos <- bind_rows(
+  extraer_stats(modelo_1, "Modelo 1: temporales"),
+  extraer_stats(modelo_2, "Modelo 2: + geográficas"),
+  extraer_stats(modelo_3, "Modelo 3: + operativas"),
+  extraer_stats(modelo_4, "Modelo 4: + climáticas")
+)
+
+tabla_resumen_modelos_gt <- tabla_resumen_modelos %>%
+  gt() %>%
+  tab_header(title = md("**Tabla resumen: comparación de modelos progresivos**")) %>%
+  fmt_number(columns = c(R2, R2_ajustado, AIC, BIC, F_estadistico), decimals = 4) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(table.width = pct(100), heading.align = "center",
+              table.font.size = px(12), data_row.padding = px(6))
+
+invisible(tabla_resumen_modelos_gt)
+print(tabla_resumen_modelos)
+
+# ----------------------------------------------------------
+# Selección automática del modelo final
+# ----------------------------------------------------------
+
+# Lista de modelos con sus nombres
+lista_modelos <- list(
+  "Modelo 1: temporales"   = modelo_1,
+  "Modelo 2: + geográficas" = modelo_2,
+  "Modelo 3: + operativas"  = modelo_3,
+  "Modelo 4: + climáticas"  = modelo_4
+)
+
+# Selección por menor AIC y mayor R² ajustado
+aics          <- sapply(lista_modelos, AIC)
+r2_ajustados  <- sapply(lista_modelos, function(m) summary(m)$adj.r.squared)
+nombre_mejor  <- names(which.min(aics))
+modelo_final  <- lista_modelos[[nombre_mejor]]
+
+cat("\n--- Selección automática del modelo final ---\n")
+cat("AIC por modelo:\n"); print(round(aics, 2))
+cat("R² ajustado por modelo:\n"); print(round(r2_ajustados, 4))
+cat("\nModelo seleccionado:", nombre_mejor,
+    "| AIC =", round(min(aics), 2),
+    "| R² ajustado =", round(summary(modelo_final)$adj.r.squared, 4), "\n")
+print(summary(modelo_final))
+
+# Tabla de coeficientes del modelo final
+tabla_coeficientes <- tidy(modelo_final, conf.int = TRUE, conf.level = 0.95) %>%
+  mutate(
+    Significativo = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01  ~ "**",
+      p.value < 0.05  ~ "*",
+      p.value < 0.1   ~ ".",
+      TRUE            ~ ""
+    )
+  ) %>%
+  rename(
+    Variable    = term,
+    Coeficiente = estimate,
+    Error_std   = std.error,
+    IC_inferior = conf.low,
+    IC_superior = conf.high,
+    Valor_p     = p.value
+  ) %>%
+  select(Variable, Coeficiente, Error_std, IC_inferior, IC_superior, Valor_p, Significativo)
+
+tabla_coeficientes_gt <- tabla_coeficientes %>%
+  gt() %>%
+  tab_header(title = md("**Coeficientes del modelo final con IC al 95%**")) %>%
+  fmt_number(columns = c(Coeficiente, Error_std, IC_inferior, IC_superior, Valor_p),
+             decimals = 6) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(table.width = pct(100), heading.align = "center",
+              table.font.size = px(12), data_row.padding = px(6))
+
+invisible(tabla_coeficientes_gt)
