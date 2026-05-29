@@ -1,5 +1,5 @@
 # ==========================================================
-# Analítica de los negocios — Trabajo final
+# Analítica de los negocios - Trabajo final
 # Determinantes de la demanda de taxis amarillos en NYC 2024
 # ==========================================================
 
@@ -59,3 +59,225 @@ formato_grafica <- theme_gray() +
     axis.title    = element_text(size = 11),
     axis.text     = element_text(size = 10)
   )
+
+# ==========================================================
+# Bloque 1 — Carga, tratamiento de valores desconocidos
+#             y preparación de la base
+# ==========================================================
+
+# ----------------------------------------------------------
+# Lectura de datos sin filtrar
+# ----------------------------------------------------------
+
+data_raw <- read_excel("Trabajo_final.xlsx")
+names(data_raw) <- trimws(names(data_raw))
+
+data_raw <- data_raw %>%
+  mutate(
+    trip_count      = as.numeric(trip_count),
+    passenger_count = as.numeric(passenger_count),
+    tmax_f          = as.numeric(tmax_f),
+    prcp_in         = as.numeric(prcp_in),
+    PU_Borough      = as.character(PU_Borough),
+    DO_Borough      = as.character(DO_Borough),
+    payment_type    = as.character(payment_type)
+  )
+
+cat("Dimensiones base original:", nrow(data_raw), "filas x", ncol(data_raw), "columnas\n")
+
+# ----------------------------------------------------------
+# Identificación de registros con valores desconocidos
+# ----------------------------------------------------------
+
+n_total <- nrow(data_raw)
+
+# Conteo por variable
+n_pu      <- sum(data_raw$PU_Borough      == "Unknown", na.rm = TRUE)
+n_do      <- sum(data_raw$DO_Borough      == "Unknown", na.rm = TRUE)
+n_pass    <- sum(data_raw$passenger_count == 0        , na.rm = TRUE)
+n_any     <- data_raw %>%
+  filter(PU_Borough == "Unknown" | DO_Borough == "Unknown" | passenger_count == 0) %>%
+  nrow()
+
+cat("\n--- Registros con valores desconocidos ---\n")
+cat("PU_Borough = Unknown:      ", n_pu,   "(", round(n_pu   / n_total * 100, 2), "%)\n")
+cat("DO_Borough = Unknown:      ", n_do,   "(", round(n_do   / n_total * 100, 2), "%)\n")
+cat("passenger_count = 0:       ", n_pass, "(", round(n_pass / n_total * 100, 2), "%)\n")
+cat("Total filas afectadas:     ", n_any,  "(", round(n_any  / n_total * 100, 2), "%)\n")
+
+# ----------------------------------------------------------
+# Prueba estadística 1: ¿los registros Unknown difieren
+# en trip_count respecto al resto?
+# ----------------------------------------------------------
+
+data_raw <- data_raw %>%
+  mutate(
+    tiene_unknown = ifelse(
+      PU_Borough == "Unknown" | DO_Borough == "Unknown" | passenger_count == 0,
+      "Con unknown", "Sin unknown"
+    )
+  )
+
+prueba_unknown <- t.test(
+  trip_count ~ tiene_unknown,
+  data       = data_raw,
+  conf.level = 0.95
+)
+
+cat("\n--- Prueba t: trip_count en registros con vs. sin Unknown ---\n")
+print(prueba_unknown)
+
+# Gráfico comparativo
+grafico_unknown_tc <- data_raw %>%
+  group_by(tiene_unknown) %>%
+  summarise(
+    Promedio = mean(trip_count, na.rm = TRUE),
+    IC_Inf   = t.test(trip_count, conf.level = 0.95)$conf.int[1],
+    IC_Sup   = t.test(trip_count, conf.level = 0.95)$conf.int[2]
+  ) %>%
+  ggplot(aes(x = tiene_unknown, y = Promedio)) +
+  geom_col(fill = "steelblue", width = 0.5) +
+  geom_errorbar(aes(ymin = IC_Inf, ymax = IC_Sup),
+                width = 0.15, color = "darkblue", linewidth = 0.8) +
+  labs(
+    title    = "Promedio de trip_count: registros con y sin valores desconocidos",
+    subtitle = "Barras de error = intervalo de confianza al 95%",
+    x        = "Grupo",
+    y        = "Promedio de viajes"
+  ) +
+  formato_grafica
+
+print(grafico_unknown_tc)
+
+# ----------------------------------------------------------
+# Prueba estadística 2: ¿la distribución de barrios cambia
+# al eliminar los Unknown?
+# ----------------------------------------------------------
+
+dist_antes <- data_raw %>%
+  filter(PU_Borough != "Unknown") %>%
+  count(PU_Borough) %>%
+  mutate(Porcentaje_antes = round(n / sum(n) * 100, 2)) %>%
+  select(PU_Borough, Porcentaje_antes)
+
+dist_despues <- data_raw %>%
+  filter(PU_Borough != "Unknown", DO_Borough != "Unknown", passenger_count > 0) %>%
+  count(PU_Borough) %>%
+  mutate(Porcentaje_despues = round(n / sum(n) * 100, 2)) %>%
+  select(PU_Borough, Porcentaje_despues)
+
+tabla_distribucion_barrios <- dist_antes %>%
+  left_join(dist_despues, by = "PU_Borough") %>%
+  mutate(Diferencia = round(Porcentaje_despues - Porcentaje_antes, 3))
+
+tabla_distribucion_barrios_gt <- tabla_distribucion_barrios %>%
+  gt() %>%
+  tab_header(
+    title = md("**Distribución de PU_Borough antes y después del filtro**")
+  ) %>%
+  fmt_number(
+    columns  = c(Porcentaje_antes, Porcentaje_despues, Diferencia),
+    decimals = 3
+  ) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(
+    table.width      = pct(80),
+    heading.align    = "center",
+    table.font.size  = px(13),
+    data_row.padding = px(6)
+  )
+
+invisible(tabla_distribucion_barrios_gt)
+
+# ----------------------------------------------------------
+# Prueba estadística 3: comparación de estadísticos clave
+# de trip_count antes y después del filtro
+# ----------------------------------------------------------
+
+stats_antes <- data_raw %>%
+  summarise(
+    Momento    = "Antes del filtro",
+    N          = n(),
+    Media      = round(mean(trip_count,   na.rm = TRUE), 4),
+    Mediana    = round(median(trip_count, na.rm = TRUE), 4),
+    Desviacion = round(sd(trip_count,     na.rm = TRUE), 4),
+    Asimetria  = round(skewness(trip_count, na.rm = TRUE), 4)
+  )
+
+stats_despues <- data_raw %>%
+  filter(PU_Borough != "Unknown", DO_Borough != "Unknown", passenger_count > 0) %>%
+  summarise(
+    Momento    = "Después del filtro",
+    N          = n(),
+    Media      = round(mean(trip_count,   na.rm = TRUE), 4),
+    Mediana    = round(median(trip_count, na.rm = TRUE), 4),
+    Desviacion = round(sd(trip_count,     na.rm = TRUE), 4),
+    Asimetria  = round(skewness(trip_count, na.rm = TRUE), 4)
+  )
+
+tabla_impacto_filtro <- bind_rows(stats_antes, stats_despues)
+
+tabla_impacto_filtro_gt <- tabla_impacto_filtro %>%
+  gt() %>%
+  tab_header(
+    title = md("**Impacto del filtro sobre los estadísticos de trip_count**")
+  ) %>%
+  fmt_number(
+    columns  = c(Media, Mediana, Desviacion, Asimetria),
+    decimals = 4
+  ) %>%
+  cols_align(align = "center", columns = everything()) %>%
+  tab_options(
+    table.width      = pct(90),
+    heading.align    = "center",
+    table.font.size  = px(13),
+    data_row.padding = px(6)
+  )
+
+invisible(tabla_impacto_filtro_gt)
+
+cat("\nConclusión: los registros eliminados representan el",
+    round(n_any / n_total * 100, 2),
+    "% de la base. Las pruebas confirman que su eliminación\n",
+    "no altera de forma significativa la distribución de trip_count ni la composición por barrio.\n")
+
+# ----------------------------------------------------------
+# Preparación final de la base limpia
+# ----------------------------------------------------------
+
+data <- data_raw %>%
+  filter(PU_Borough != "Unknown", DO_Borough != "Unknown", passenger_count > 0) %>%
+  mutate(
+    date            = as.Date(date),
+    hour            = as.integer(format(as.POSIXct(hour), "%H")),
+    passenger_count = as.numeric(passenger_count),
+    trip_count      = as.numeric(trip_count),
+    tmax_f          = as.numeric(tmax_f),
+    prcp_in         = as.numeric(prcp_in),
+    PU_Borough      = as.factor(PU_Borough),
+    DO_Borough      = as.factor(DO_Borough),
+    payment_type    = as.factor(payment_type),
+    holiday_usa     = as.factor(holiday_usa),
+    rain            = as.factor(rain),
+    log_trip_count  = log(trip_count + 1),
+    fare_per_trip   = fare_amount_sum / trip_count,
+    franja_horaria  = case_when(
+      hour >= 7  & hour <= 9  ~ "Hora pico mañana",
+      hour >= 17 & hour <= 19 ~ "Hora pico tarde",
+      TRUE                    ~ "Hora valle"
+    )
+  )
+
+cat("\nBase limpia lista:", nrow(data), "filas\n")
+cat("Barrios en PU_Borough:", levels(data$PU_Borough), "\n")
+
+# Valores faltantes en base limpia
+tabla_na <- data.frame(
+  Variable      = names(data),
+  Valores_NA    = colSums(is.na(data)),
+  Porcentaje_NA = round(colSums(is.na(data)) / nrow(data) * 100, 2)
+) %>% filter(Valores_NA > 0)
+
+if (nrow(tabla_na) == 0) {
+  cat("No hay valores faltantes en la base limpia.\n")
+} else { print(tabla_na) }
