@@ -844,7 +844,7 @@ tabla_coeficientes_gt <- tabla_coeficientes %>%
 
 invisible(tabla_coeficientes_gt)
 
-                        # ==========================================================
+# ==========================================================
 # Bloque 6 — Evaluación y validación del modelo
 # ==========================================================
 
@@ -1011,6 +1011,7 @@ grafico_coeficientes <- tabla_coeficientes %>%
   formato_grafica
 
 print(grafico_coeficientes)
+                        
 # ==========================================================
 # Bloque 7 — Exportación de resultados
 # ==========================================================
@@ -1095,7 +1096,7 @@ writeLines(resultados_txt, file.path(carpeta_output, "R00_resultados_pruebas.txt
 
 cat("\nExportación completa. Archivos en:", carpeta_output, "\n")
 
- # ==========================================================
+# ==========================================================
 # Bloque 8 — Dashboard interactivo en Shiny
 # ==========================================================
 
@@ -1397,4 +1398,3 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui = ui, server = server)
-                     
